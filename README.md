@@ -89,3 +89,396 @@
 特征：
 
 ![image-20220327161350155](README.assets/image-20220327161350155.png)
+
+## Jenkins 安装和持续集成环境配置
+
+### 持续集成流程说明
+
+![image-20220327161731040](README.assets/image-20220327161731040.png)
+
+1. 开发人员进行 commit 将代码提交到 git 仓库
+2. Jenkins 作为持续集成工具，使用 git 工具到 git 仓库拉取代码到集成服务器，再配合 JDK, Maven 等软件完成代码编译，代码测试，审查，打包等工作；(在这个过程中每一步出错，都重新执行一次整个流程)
+3. Jenkins 将打包的 war / jar 包分发到测试服务器/生产服务器，供测试人员/用户访问
+
+### Gitlab 代码托管仓库服务器
+
+#### 安装
+
+1. 安装相关依赖
+
+   ```bash
+   yum -y install policycoreutils openssh-server openssh-clients postfix
+   ```
+
+2. 启动 ssh 服务 & 并设置开机自启
+
+   ```bash
+   systemctl enable sshd && sudo systemctl start sshd
+   ```
+
+3. 设置 postfix 开机自启(用来支持 gitlab 发信功能)
+
+   ```bash
+   systemctl enable postfix && systemctl start postfix
+   ```
+
+4. 开放 ssh 以及 http 服务，然后重新加载防火墙列表(也可以直接关闭防火墙)
+
+   ```bash
+   firewall-cmd --add-service=ssh --permanent
+   firewall-cmd --add-service=http --permanent
+   firewall-cmd --reload
+   ```
+
+5. 下载 [gitlab](https://mirrors.tuna.tsinghua.edu.cn/gitlab-ce/yum/el6/gitlab-ce-12.4.2-ce.0.el6.x86_64.rpm) 进行安装
+
+   ```bash
+   rpm -i gitlab-ce-12.4.2-ce.0.el6.x86_64.rpm
+   ```
+
+6. 修改 gitlab 配置
+
+   ```bash
+   vi /etc/gitlab/gitlab.rb
+   ```
+
+   主要是修改 gitlab 访问地址和端口
+
+   访问地址是默认有的，要去修改; nginx那个可以直接写，默认是注释的
+
+   ```ruby
+   external_url 'http://192.168.66.100:82'
+   nginx['listen_port'] = 82
+   ```
+
+7. 重新加载配置以及重启 gitlab(需要等一会)
+
+   ```bash
+   gitlab-ctl reconfigure
+   gitlab-ctl restart
+   ```
+
+8. 开放对应的端口
+
+   ```bash
+   firewall-cmd --zone=public --add-port=82/tcp --permanent
+   firewall-cmd --reload
+   ```
+
+9. 启动，访问
+
+   ![image-20220403202521950](README.assets/image-20220403202521950.png)
+
+   ![image-20220403202812100](README.assets/image-20220403202812100.png)
+
+#### 添加组，创建用户，创建项目
+
+1. 创建组
+
+   使用管理员 root 创建组，一个组里面可以有多个项目，可以将开发者添加到组里面并进行相关权限设置
+
+   ![image-20220403203635701](README.assets/image-20220403203635701.png)
+
+   ![image-20220403203906383](README.assets/image-20220403203906383.png)
+
+2. 创建用户
+
+   ![image-20220403204108904](README.assets/image-20220403204108904.png)
+
+   需要注意的点：
+
+   - 分配身份权限
+
+     ![image-20220403204206882](README.assets/image-20220403204206882.png)
+
+   - 密码：需要创建用户后才能设置(可以在右上角退出登录试试)
+
+     ![image-20220403204244066](README.assets/image-20220403204244066.png)
+
+     ![image-20220403204250794](README.assets/image-20220403204250794.png)
+
+3. 将用户添加到用户组中
+
+   ![image-20220403204515347](README.assets/image-20220403204515347.png)
+
+   ![image-20220403204542802](README.assets/image-20220403204542802.png)
+
+   
+
+   Guest：可以创建 issue，发布评论，不能读写版本库
+
+   Reporter：可以克隆代码，不能提交
+
+   Developer：可以克隆代码，开发，提交，push
+
+   Maintainer：可以创建项目，项目 tag，保护分支，添加项目成员，边际成员
+
+   Owner：可以设置项目访问权限，删除项目，迁移项目，管理组成员
+
+4. 创建项目
+
+   ![image-20220403204920185](README.assets/image-20220403204920185.png)
+
+#### 将代码提交到 gitlab 仓库
+
+就和正常上传到 git 一样，地址可以在仓库的左上角 [Clone] 上搞到，不过第一次上传的时候 need 输入账号密码，输入自己 gitlab 的账户即可(建议用 root 不然可能遇到权限问题emmm)
+
+![image-20220403210112135](README.assets/image-20220403210112135.png)
+
+![image-20220403210603326](README.assets/image-20220403210603326.png)
+
+### Jenkins 安装
+
+1. 安装 JDK 环境
+
+   ```bash
+   yum install java-1.8.0-openjdk* -y
+   ```
+
+2. 进行 Jenkins 安装
+
+   ```bash
+   sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+   sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+   yum install jenkins
+   ```
+
+   如果第一条命令出现错误，就换成
+
+   ```bash
+   wget --no-check-certificate -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+   ```
+
+3. 修改 Jenkins 配置
+
+   ```bash
+   vi /etc/syscofig/jenkins
+   ```
+
+   修改内容
+
+   ```
+   JENKINS_USER="root"
+   JENKINS_PORT="8888"
+   ```
+
+   [坑]如果修改之后发现 Jenkins 的端口依然是 8080，可以使用以下方法
+
+   ```bash
+   vim /usr/lib/systemd/system/jenkins.service
+   ```
+
+   ```
+   Environment="JENKINS_PORT=8889"
+   ```
+
+   ```bash
+   # 重新加载配置文件
+   systemctl daemon-reload
+   ```
+
+4. 启动 Jenkins
+
+   ```bash
+   systemctl start jenkins
+   ```
+
+5. 打开游览器访问(记得开放对应的端口)
+
+6. 获取并输入 admin 密码
+
+   ```bash
+   cat /var/lib/jenkins/secrets/initialAdminPassword
+   ```
+
+7. 跳过插件安装(因为 Jenkins 插件需要连接官网下载，速度太慢，所以这里先暂时跳过)
+
+   ![image-20220410161932819](README.assets/image-20220410161932819.png)
+
+   ![image-20220410161947839](README.assets/image-20220410161947839.png)
+
+8. [可选]创建一个管理员账户
+
+   ![image-20220410162016408](README.assets/image-20220410162016408.png)
+
+### Jenkins 插件安装
+
+#### 修改 Jenkins 插件下载地址
+
+1. 打开 Jenkins；jenkins -> Manage jenkins -> Maven Plugins，点击 Available
+
+2. 等待列表加载完成，这一步是为了将 Jenkins 官方的插件列表下载到本地
+
+3. 修改地址文件，替换为国内插件地址
+
+   ```bash
+   cd /var/lib/jenkins/updates
+   
+   sed -i 's/http:\/\/updates.jenkinsci.org\/download/https:\/\/mirrors.tuna.tsinghua.edu.cn\/jenkins/g' default.json && sed -i 's/http:\/\/www.google.com/https:\/\/www.baidu.com/g' default.json
+   ```
+
+4. 在 Plugin Manager 中点击 Advance，划到最下面 Update Site 将其中的 URL 修改成国内的下载地址
+
+   > https://mirrors.tuna.tsinghua.edu.cn/jenkins/updates/update-center.json
+
+   点击 Submit
+
+5. 在 Jenkins 访问地址后面加上 `/restart`，即可重启 Jenkins
+
+   ![image-20220410194900098](README.assets/image-20220410194900098.png)
+
+#### 安装中文插件
+
+1. Manager Jenkins -> Manage Plugins -> Available 等待列表下载完成
+
+2. 输入 `Chinese`
+
+   ![image-20220410195048624](README.assets/image-20220410195048624.png)
+
+3. 等待安装后勾选重启框即可
+
+   ![image-20220410195126079](README.assets/image-20220410195126079.png)
+
+4. 刷新页面
+
+### Jenkins 用户权限管理
+
+> 利用 Role-based Authorization Strategy 管理 Jenkins 用户
+
+1. 系统管理 -> 插件管理 -> 可选插件，等待列表加载完成
+
+2. 搜索 [Role-based Authorization Strategy]
+
+   ![image-20220410201406595](README.assets/image-20220410201406595.png)
+
+3. 等待安装，这个可以不用重启
+
+4. 系统管理 -> 全局安全配置 -> 授权策略
+
+   ![image-20220410201524704](README.assets/image-20220410201524704.png)
+
+5. [创建角色] 系统管理 -> Manage and Assign Roles -> 管理角色
+
+   ![image-20220410201903998](README.assets/image-20220410201903998.png)
+
+   下面有个 **Save** 别忘了保存
+
+6. [创建用户] 系统管理 -> 管理用户
+
+   ![image-20220410202037373](README.assets/image-20220410202037373.png)
+
+7. [给用户分配角色] 系统管理 -> Manage and Assign Roles -> Assign Roles(记得下面有个 **Save**)
+
+   ![image-20220410202335581](README.assets/image-20220410202335581.png)
+
+8. [创建项目用来测试] 新建任务
+
+   ![image-20220410202411558](README.assets/image-20220410202411558.png)
+
+   ![image-20220410202446457](README.assets/image-20220410202446457.png)
+
+9. 分别使用两个账户登录
+
+   ![image-20220410202655137](README.assets/image-20220410202655137.png)
+
+   ![image-20220410202813121](README.assets/image-20220410202813121.png)
+
+### Jenkins 凭证管理
+
+作用：凭据可以用来存储需要密文保护的数据库密码、Gitlab密码信息、Docker私有仓库密码等，以便 Jenkins可以和这些第三方的应用进行交互
+
+#### 安装 Credentials Binding 插件
+
+![image-20220410213845546](README.assets/image-20220410213845546.png)
+
+安装成功后可以在 系统管理 中看到相关选项
+
+![image-20220410214216678](README.assets/image-20220410214216678.png)
+
+#### 安装 git 插件 & git 工具
+
+作用：为了让Jenkins支持从Gitlab拉取源码，需要安装Git插件以及在CentOS7上安装Git工具。
+
+> git 插件安装
+
+![image-20220410214550355](README.assets/image-20220410214550355.png)
+
+在安装完成后可以[新建任务]并在其中的**源码管理**中可以看到 git
+
+![image-20220410214817477](README.assets/image-20220410214817477.png)
+
+> 在 Centos 中安装 git
+
+```bash
+yum install git -y #安装
+git --version      #安装后查看版本
+```
+
+#### 使用用户密码类型拉取 gitlab 仓库
+
+1. [凭据配置]
+
+   ![image-20220410220228029](README.assets/image-20220410220228029.png)
+
+   ![image-20220410220358217](README.assets/image-20220410220358217.png)
+
+2. 添加凭据
+
+   ![image-20220410220509014](README.assets/image-20220410220509014.png)
+
+   ![image-20220410220610504](README.assets/image-20220410220610504.png)
+
+3. 选择凭据类型并填写相关数据
+
+   ![image-20220410221256917](README.assets/image-20220410221256917.png)
+
+   ![image-20220410221320922](README.assets/image-20220410221320922.png)
+
+4. [测试凭证是否可以使用] 打开任务 -> 配置 -> 源码管理(记得点 Save)
+
+   ![image-20220410221740560](README.assets/image-20220410221740560.png)
+
+5. 回到任务界面，点击[立即构建]，等待一会，点击[工作区]即可看到拉取的代码
+
+   ![image-20220410222210282](README.assets/image-20220410222210282.png)
+
+#### 使用 SSH 密钥拉取 gitlab 仓库
+
+> SSH 免密登录示意图
+
+![image-20220410222738304](README.assets/image-20220410222738304.png)
+
+1. 使用 root 用户生成公钥和私钥
+
+   ```bash
+   ssh-keygen -t rsa
+   ```
+
+2. 可以在 `/root/.ssh` 下查看公钥私钥文件
+
+   ![image-20220410222910520](README.assets/image-20220410222910520.png)
+
+3. 复制公钥放到 gitlab 上
+
+   ![image-20220410223116124](README.assets/image-20220410223116124.png)
+
+4. 在 Jenkins 中添加密钥凭证
+
+   ![image-20220410223337125](README.assets/image-20220410223337125.png)
+
+5. 使用密钥凭证拉取 gitlab 仓库上的数据
+
+   ![image-20220410223446619](README.assets/image-20220410223446619.png)
+
+6. [立即构建]
+
+   ![image-20220410223504243](README.assets/image-20220410223504243.png)
+
+   
+
+
+
+
+
+
+
