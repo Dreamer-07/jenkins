@@ -158,7 +158,7 @@
    gitlab-ctl restart
    ```
 
-8. 开放对应的端口
+8. 开放对应的端口[如果关闭防火墙了那无所谓]
 
    ```bash
    firewall-cmd --zone=public --add-port=82/tcp --permanent
@@ -249,10 +249,16 @@
    wget --no-check-certificate -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
    ```
 
-3. 修改 Jenkins 配置
+3. 启动 Jenkins
 
    ```bash
-   vi /etc/syscofig/jenkins
+   systemctl start jenkins
+   ```
+
+4. 修改 Jenkins 配置(改完记得重启)
+
+   ```bash
+   vi /etc/sysconfig/jenkins
    ```
 
    修改内容
@@ -268,19 +274,11 @@
    vim /usr/lib/systemd/system/jenkins.service
    ```
 
-   ```
-   Environment="JENKINS_PORT=8889"
-   ```
+   > Environment="JENKINS_PORT=8888"
 
    ```bash
    # 重新加载配置文件
    systemctl daemon-reload
-   ```
-
-4. 启动 Jenkins
-
-   ```bash
-   systemctl start jenkins
    ```
 
 5. 打开游览器访问(记得开放对应的端口)
@@ -474,9 +472,159 @@ git --version      #安装后查看版本
 
    ![image-20220410223504243](README.assets/image-20220410223504243.png)
 
-   
+### Maven 安装和配置
 
+> 在 Jenkins 服务器上，我们需要安装 Maven 来编译和打包项目
 
+#### 安装 Maven
+
+1. 先将 Maven 软件上传到服务器
+
+2. 解压 Maven 文件夹
+
+   ```bash
+   tar -xzf apache-maven-3.6.2-bin.tar.gz #解压
+   mkdir -p /opt/maven 				   #创建目录
+   mv apache-maven-3.6.2/* /opt/maven     #移动文件
+   ```
+
+3. 配置环境变量
+
+   ```bash
+   vi /etc/profile
+   ```
+
+   > export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk 
+   >
+   > export MAVEN_HOME=/opt/maven 
+   >
+   > export PATH=$PATH:$JAVA_HOME/bin:$MAVEN_HOME/bin
+
+   ```bash
+   source /etc/profile #配置生效
+   mvn -v 				#查找Maven版本
+   ```
+
+#### 修改 Maven 的 setting.xml
+
+1. 创建本地仓库目录
+
+   ```bash
+   mkdir /opt/resp
+   ```
+
+2. 修改 maven 配置文件
+
+   ```bash
+   vi /opt/maven/conf/settings.xml
+   ```
+
+   ```xml
+   <!-- 这一段可以直接加 -->
+   <localRepository>/opt/resp</localRepository>
+   <!-- 这一段在 mirrors 中添加 -->
+   <mirror>
+       <id>aliyunmaven</id>
+       <mirrorOf>*</mirrorOf>
+       <name>阿里云公共仓库</name>
+       <url>https://maven.aliyun.com/repository/public</url>
+   </mirror>
+   ```
+
+#### 在 Jenkins 上配置 JDK & Maven
+
+系统管理 -> 全局工具配置
+
+![image-20220411114401111](README.assets/image-20220411114401111.png)
+
+![image-20220411114445870](README.assets/image-20220411114445870.png)
+
+记得点击 **保存**
+
+#### 添加 Jenkins 全局配置
+
+系统管理 -> 系统配置 -> 全局属性
+
+![image-20220411114806459](README.assets/image-20220411114806459.png)
+
+#### 测试 Maven 是否配置成功
+
+打开一个任务，点击[配置]，找到[构建] -> [增加构建步骤] -> [执行 shell]
+
+```shell
+mvn clean package
+```
+
+点击保存后，点击[立即构建]
+
+tips：如果出现错误可以参考
+
+- https://blog.csdn.net/qq_34794527/article/details/117363051
+- https://blog.csdn.net/luomo0203/article/details/110414085
+
+### Tomcat 安装和配置
+
+1. 安装 JDK
+
+   ```bash
+   yum install java-1.8.0-openjdk* -y
+   ```
+
+2. 将对应的 tomcat 上传的服务器上并解压
+
+3. 创建一个目录用来存放 tomcat
+
+   ```bash
+   mkdir -p /opt/tomcat
+   ```
+
+4. 移动 tomcat 到目的文件夹
+
+   ```bash
+   mv apache-tomcat-8.5.78/* /opt/tomcat/
+   ```
+
+5. 默认情况下 tomcat 没有角色维护管理，所以需要额外配置
+
+   ```bash
+   vi /opt/tomcat/conf/tomcat-users.xml
+   ```
+
+   ```xml
+   <!-- 配置角色 -->
+   <role rolename="tomcat"/>
+   <role rolename="role1"/>
+   <role rolename="manager-script"/>
+   <role rolename="manager-gui"/>
+   <role rolename="manager-status"/>
+   <role rolename="admin-gui"/>
+   <role rolename="admin-script"/>
+   <!-- 配置用户并分配角色 -->
+   <user username="tomcat" password="tomcat" roles="manager-gui,managerscript,tomcat,admin-gui,admin-script"/>
+   ```
+
+   ```bash
+   vi /opt/tomcat/webapps/manager/META-INF/context.xml
+   ```
+
+   ```xml
+   <!-- 将这部分内容注释dio即可 -->
+   <!--
+   <Valve className="org.apache.catalina.valves.RemoteAddrValve"
+   allow="127\.\d+\.\d+\.\d+|::1|0:0:0:0:0:0:0:1" />
+   -->
+   ```
+
+6. 运行 tomcat
+
+   ```bash
+   /opt/tomcat/bin/startup.sh
+   ```
+
+7. 访问对应的 8080 端口
+
+   ![image-20220411215821084](README.assets/image-20220411215821084.png)
+   输入对应的用户密码(tomcat)即可访问管理界面
 
 
 
