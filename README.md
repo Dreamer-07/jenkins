@@ -600,7 +600,7 @@ tips：如果出现错误可以参考
    <role rolename="admin-gui"/>
    <role rolename="admin-script"/>
    <!-- 配置用户并分配角色 -->
-   <user username="tomcat" password="tomcat" roles="manager-gui,managerscript,tomcat,admin-gui,admin-script"/>
+   <user username="tomcat" password="tomcat" roles="manager-gui,manager-script,tomcat,admin-gui,admin-script"/>
    ```
 
    ```bash
@@ -626,7 +626,228 @@ tips：如果出现错误可以参考
    ![image-20220411215821084](README.assets/image-20220411215821084.png)
    输入对应的用户密码(tomcat)即可访问管理界面
 
+## Jenkins 构建 Maven 项目
 
+### Jenkins 构建的项目类型介绍
+
+jenkins 中自动构建项目的类型有很多，常用的有以下三种
+
+- 自由风格软件项目(FreeStyle Project)
+- Maven 项目(Maven Project)
+- 流水线项目(Pipeline Project)
+
+每种类型的构建其实都可以完成一样的构建过程与结果，只是操作方式，灵活度方面有所区别，在实际开发中可以根据自己的需求和习惯来选择
+
+### 自由风格构建
+
+> 创建一个自由风格项目来完成项目的集成过程：
+>
+> 拉取代码 -> 编译 -> 打包 -> 部署
+
+1. 创建 Jenkins 任务
+
+   ![image-20220413105459895](README.assets/image-20220413105459895.png)
+
+2. 配置源码管理
+
+   ![image-20220413105542503](README.assets/image-20220413105542503.png)
+
+3. 添加构建步骤
+
+   ```shell
+   echo "开始编译和打包"
+   mvn clean package
+   echo "编译和打包结束
+   ```
+
+4. 部署到 **tomcat**
+
+   1. 安装 ` Deploy to container` 插件
+
+   2. 添加 Tomcat 用户凭证
+
+      ![image-20220413105809393](README.assets/image-20220413105809393.png)
+
+   3. 在任务配置中添加构建后操作
+
+      ![image-20220413110022679](README.assets/image-20220413110022679.png)
+
+      ![image-20220413110119470](README.assets/image-20220413110119470.png)
+
+   4. 点击立即构建即可
+
+   5. 构建成功后访问 http://192.168.137.82:8080/web-demo-1.0-SNAPSHOT/
+
+      ![image-20220413113032792](README.assets/image-20220413113032792.png)
+
+### Maven 风格构建
+
+1. 安装 `Maven Integration` 插件
+
+   ![image-20220413113134547](README.assets/image-20220413113134547.png)
+
+2. 创建 Maven 风格项目
+
+   ![image-20220413113623099](README.assets/image-20220413113623099.png)
+
+3. 拉取 gitlab 和部署 tomcat 的过程是一样的
+
+4. 不同的在于 mvn 构建过程
+
+   ![image-20220413113826339](README.assets/image-20220413113826339.png)
+
+5. 访问页面
+
+   ![image-20220413114334189](README.assets/image-20220413114334189.png)
+
+
+
+### Pipeline 流水线项目构建
+
+#### Pipeline 简介
+
+- Pipeline：指**流水线**，可以理解成一套运行在 Jenkins 上的工作流框架，将原来独立运行于单个/多个节点的任务连接起来，实现单个任务难以完成的复杂流程编排和可视化的工作
+
+  > 例如：我们要实现单个任务可能要经过 pull, build 等等阶段，但这些阶段都是相互独立，之间并没有什么关联性，不方便控制和管理，但使用 Pipeline，就可以使这些过程关联起来，在 Jenkins 上甚至能提供一些可视化阶段帮助我们观察和管理
+
+- 使用 Pipeline 的好处：
+
+  1. Pipeline 以代码的形式实现，通常被检入源代码控制，使团队能够编辑，审查和迭代其传送流程
+  2. 无论是计划内的还是计划外的服务器重启，Pipeline都是可恢复的。 
+  3. Pipeline 可接收交互式输入，以确定是否继续执行 Pipeline
+  4. Pipeline支持现实世界中复杂的持续交付要求，它支持 fork/join、循环执行，并行执行任务的功能。
+  5. Pipeline 插件支持其DSL的自定义扩展 ，以及与其他插件集成的多个选项
+
+- 如何创建 Jenkins Pipeline
+
+  - Pipeline 脚本由 **Groovy** 语言实现
+  - 有两种创建方式
+    1. 直接在 Jenkins Web UI 界面中输入脚本
+    2. 在源代码的目录下创建一个 `Jenkinsfile`(推荐)
+  - 支持两种语法
+    - 声明式
+    - 脚本式
+
+#### 安装 Pipeline 插件
+
+![image-20220413181336718](README.assets/image-20220413181336718.png)
+
+创建成功后在[创建任务]界面上就可以看到相关选项了
+
+![image-20220413181757140](README.assets/image-20220413181757140.png)
+
+#### Pipeline 语法快速入门
+
+![image-20220413181947142](README.assets/image-20220413181947142.png)
+
+> 声明式
+
+```groovy
+pipeline {
+    agent any
+
+    stages {
+        stage('pull code') {
+            steps {
+                echo 'pull code'
+            }
+        }
+        stage('build project') {
+            steps {
+                echo 'build project'
+            }
+        }
+        stage('publish project') {
+            steps {
+                echo 'publish project'
+            }
+        }
+    }
+}
+```
+
+**stages**：代码整个流水线的所有执行流程，通常 stages 只有一个，里面包含多个 stage
+
+**stage**：代表流水线中的某个阶段，可能出现 n 个，例如拉取代码，项目构建，部署项目等
+
+**steps**：一个阶段内需要执行的逻辑，可能是 shell脚本/git命令/ssh远程发布 等任意内容
+
+> 脚本式
+
+```groovy
+node {
+    def mvnHome
+    stage('pull code') { // for display purposes
+        echo 'pull code'
+    }
+    stage('build project') {
+        echo 'build project'
+    }
+    stage('publish project') {
+        echo 'publish project'
+    }
+}
+```
+
+**node**：节点，一个 node 就是一个 jenkins 节点(Master/Slave)，是执行 Step 的具体运行环境
+
+**stage**：流水线阶段，一个 pipeline 可以分为多个 stage，每个 stage 表示一个操作(pull/bulid/deploy等等)
+
+**step**：步骤，最基本的运行单元，可以是打印一句话，也可以是构建一个 Docker 镜像， 由各类 Jenkins 插件提供
+
+#### Pipeline Gitlab Code Pull
+
+> 可以通过[流水线语法]生成对应的 pipeline steps 代码
+
+![image-20220413185231819](README.assets/image-20220413185231819.png)
+
+```groovy
+pipeline {
+    agent any
+
+    stages {
+        stage('pull code') {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'd2344a4e-e819-41d4-bda4-1f8bffdd0ef9', url: 'http://192.168.137.80:88/root/web-demo.git']]])
+            }
+        }
+    }
+}
+```
+
+#### Pipeline Build & Publish
+
+> Maven 构建脚本
+
+```groovy
+stage('maven build') {
+    steps {
+        sh 'mvn clean package'
+    }
+}
+```
+
+> deploy to tomcat
+
+![image-20220413225615465](README.assets/image-20220413225615465.png)
+
+```groovy
+stage('project publish') {
+    steps {
+        deploy adapters: [tomcat8(credentialsId: 'a7922d1b-95a7-4f5f-a8e5-d05368679ff5', path: '', url: 'http://192.168.137.82:8080/')], contextPath: null, war: 'target/*.war'
+    }
+}
+```
+
+## Jenkins + Docker + SpringCloud 微服务持续集成
+
+
+
+
+
+
+
+## 基于 Kubernetes/K8S 构建 Jenkins 持续集成平台 
 
 
 
