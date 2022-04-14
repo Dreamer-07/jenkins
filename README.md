@@ -839,6 +839,305 @@ stage('project publish') {
 }
 ```
 
+#### Pipeline Script Form SCM
+
+> 通过 Jenkins 的 UI 界面去编写 Pipeline 代码，并不方便我们进行脚本维护，所以建议是将 Pipeline 脚本文件放在项目中(一起进行版本控制)
+
+1. 在项目的根目录下创建 `Jenkinsfile` 文件(名字最好叫这个，也可以改),并将刚刚的脚本内容CV上去
+
+   ```groovy
+   pipeline {
+       agent any
+   
+       stages {
+           stage('pull code') {
+               steps {
+                   checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'd2344a4e-e819-41d4-bda4-1f8bffdd0ef9', url: 'http://192.168.137.80:88/root/web-demo.git']]])
+               }
+           }
+           stage('maven build') {
+               steps {
+                   sh 'mvn clean package'
+               }
+           }
+           stage('project deploy') {
+               steps {
+                   deploy adapters: [tomcat8(credentialsId: 'a7922d1b-95a7-4f5f-a8e5-d05368679ff5', path: '', url: 'http://192.168.137.82:8080/')], contextPath: null, war: 'target/*.war'
+               }
+           }
+       }
+   }
+   ```
+
+   ![image-20220414104145302](README.assets/image-20220414104145302.png)
+
+2. 将代码上传到 Git 仓库
+
+3. 修改 Jenkins Pipeline 任务的配置
+
+   ![image-20220414104403855](README.assets/image-20220414104403855.png)
+
+   注意：下面有一个可以修改配置文件名的输入框，如果文件名不是 `Jenkinsfile` 记得改
+
+   ![image-20220414104449378](README.assets/image-20220414104449378.png)
+
+4. 点击立即构建
+
+### 常用的构建触发器
+
+Jenkins 内置的4中构建步骤：
+
+- 触发远程构建
+- 其他工作构建后触发(Build after other projects are build)
+- 定时构建(Build Periodically)
+- 轮询SCM(Poll SCM)
+
+#### 触发远程构建
+
+![image-20220414105900199](README.assets/image-20220414105900199.png)
+
+访问：`JENKINS_URL`/job/web-demo-pipeline3/build?token=`你刚刚设置的身份验证令牌`
+
+刷新任务界面
+
+![image-20220414110100609](README.assets/image-20220414110100609.png)
+
+#### 其他工作构建后触发
+
+先随便创建一个工作 `pre_job`
+
+修改原工程配置
+
+![image-20220414110327124](README.assets/image-20220414110327124.png)
+
+保存配置后，构建 `pre_job`，刷新当前任务界面
+
+![image-20220414110418434](README.assets/image-20220414110418434.png)
+
+#### 定时构建
+
+![image-20220414111130516](README.assets/image-20220414111130516.png)
+
+定时字符串从左往右分别为：分 时 日 月 周 (有点类似于 cron，但没有秒的概念)
+
+等待相应时间即可
+
+一些定时表达式的例子： 
+
+> 每30分钟构建一次：H代表形参 H/30 * * * * 10:02 10:32 
+>
+> 每2个小时构建一次: H H/2 * * * 
+>
+> 每天的8点，12点，22点，一天构建3次： (多个时间点中间用逗号隔开) 0 8,12,22 * * * 
+>
+> 每天中午12点定时构建一次 H 12 * * * 
+>
+> 每天下午18点定时构建一次 H 18 * * * 
+>
+> 在每个小时的前半个小时内的每10分钟 H(0-29)/10 * * * * 
+>
+> 每两小时一次，每个工作日上午9点到下午5点(也许是上午10:38，下午12:38，下午2:38，下午 4:38) H H(9-16)/2 * * 1-5
+
+#### 轮询 SCM
+
+指的是定时扫描 Git 仓库代码，如果代码有变更**才会**触发项目构建
+
+![image-20220414112008530](README.assets/image-20220414112008530.png)
+
+构建规则和**定时构建**相同，但需要注意的是：这次构建触发器，Jenkins会定时扫描本地整个项目的代码，增大系统的开销，不建议使用。
+
+### Git hook 自动触发构建
+
+#### 安装 Git hook 插件
+
+![image-20220414112759516](README.assets/image-20220414112759516.png)
+
+#### Jenkins 设置自动化构建
+
+1. 修改 Jenkins 系统配置，允许接收外部请求(一般公司里应该是要勾的然后通过 Gitlab connections 进行配置，但这里是为了方便学习就不那么麻烦了)
+
+   ![image-20220414113509886](README.assets/image-20220414113509886.png)
+
+2. 修改 Jenkins 任务配置
+
+   ![image-20220414113724885](README.assets/image-20220414113724885.png)
+
+#### Gitlab 设置 webhook
+
+1. 修改 Gitlab 系统配置
+
+   ![image-20220414113856387](README.assets/image-20220414113856387.png)
+
+2. 修改项目配置(记得保存)
+
+   ![image-20220414114045825](README.assets/image-20220414114045825.png)
+
+3. 更新代码，重新 push，观察 tomcat 服务器
+
+   ![image-20220414114304757](README.assets/image-20220414114304757.png)
+
+   ![image-20220414114317184](README.assets/image-20220414114317184.png)
+
+
+
+### Jenkins 参数化构建
+
+> 应用场景：有时候我们在进行项目构建的过程中，我们需要根据用户的输入动态传入一些参数，从而影响整个构建结果，这时我们可以使用参数化构建。
+>
+> 这里演示根据用户不同输入拉取部署不同分支的代码
+
+1. 创建分支，并推送到 gitlab 上(这里写错了，先进行第 3 步才对)
+
+   通过 idea 创建一个新分支，然后修改代码，并推送到 gitlab 即可
+
+2. 在 Jenkins 中添加字符串类型参数
+
+   ![image-20220414115927531](README.assets/image-20220414115927531.png)
+
+3. 修改 Jenkinsfile
+
+   ![image-20220414120059743](README.assets/image-20220414120059743.png)
+
+4. 返回 Jenkins 任务详情点击 [Build With Paramaters]
+
+   ![image-20220414120459597](README.assets/image-20220414120459597.png)
+
+5. 刷新 Tomcat
+
+### 配置邮件服务器发送构建结果
+
+**lepu****nxhu****taaw****ebje**
+
+1. 安装 Email Extension Template 插件
+
+   ![image-20220414141659517](README.assets/image-20220414141659517.png)
+
+2. 开启邮箱的 SMTP 配置并获取授权码
+
+   ![image-20220414142004140](README.assets/image-20220414142004140.png)
+
+3. 更改 Jenkins 配置[系统管理 -> 系统配置]
+
+   - 修改 **Jenkins Location**
+
+     ![image-20220414142308046](README.assets/image-20220414142308046.png)
+
+   - 修改插件配置 **Extended E-mail Notification**
+
+     ![image-20220414143009878](README.assets/image-20220414143009878.png)
+
+     ![image-20220414143029768](README.assets/image-20220414143029768.png)
+
+   - 修改 **邮件通知**
+
+     ![image-20220414142709335](README.assets/image-20220414142709335.png)
+
+4. 准备邮件内容
+
+   在项目根目录下创建 `email.html` 作为邮件发送模板
+
+   ```html
+   <!DOCTYPE html>
+   <html>
+   <head>
+       <meta charset="UTF-8">
+       <title>${ENV, var="JOB_NAME"}-第${BUILD_NUMBER}次构建日志</title>
+   </head>
+   
+   <body leftmargin="8" marginwidth="0" topmargin="8" marginheight="4"
+         offset="0">
+   <table width="95%" cellpadding="0" cellspacing="0"  style="font-size: 11pt; font-family: Tahoma, Arial, Helvetica, sans-serif">
+       <tr>
+           <td>以下为${PROJECT_NAME }项目构建信息</td>
+       </tr>
+       <tr>
+           <td><br />
+               <b><font color="#0B610B">构建信息</font></b>
+               <hr size="2" width="100%" align="center" /></td>
+       </tr>
+       <tr>
+           <td>
+               <ul>
+                   <li>项目名称：${PROJECT_NAME}</li>
+                   <li>构建编号：第${BUILD_NUMBER}次构建</li>
+                   <li>触发原因：${CAUSE}</li>
+                   <li>构建状态：${BUILD_STATUS}</li>
+                   <li>构建日志：<a href="${BUILD_URL}console">${BUILD_URL}console</a></li>
+                   <li>构建Url：<a href="${BUILD_URL}">${BUILD_URL}</a></li>
+                   <li>工作目录：<a href="${PROJECT_URL}ws">${PROJECT_URL}ws</a></li>
+                   <li>项目Url：<a href="${PROJECT_URL}">${PROJECT_URL}</a></li>
+                   <li>SonarQube结果：http://sonar****** </li>
+                   <li>代码覆盖率结果：http://**/job/${PROJECT_NAME}/${BUILD_NUMBER}/jacoco/  </li>
+               </ul>
+           </td>
+       </tr>
+       <tr>
+           <td><b><font color="#0B610B">历史变更记录:</font></b>
+               <hr size="2" width="100%" align="center" /></td>
+       </tr>
+       <tr>
+           <td>
+               ${CHANGES_SINCE_LAST_SUCCESS,reverse=true, format="Changes for Build #%n:<br />%c<br />",showPaths=true,changesFormat="<pre>[%a]<br />%m</pre>",pathFormat="&nbsp;&nbsp;&nbsp;&nbsp;%p"}
+           </td>
+       </tr>
+   </table>
+   </body>
+   </html>
+   ```
+
+   PS：邮件相关全局参数参考列表:系统设置->Extended E-mail Notification->Content Token Reference，点击旁边的?号
+
+   ![image-20220414145639984](README.assets/image-20220414145639984.png)
+
+5. 修改 Jenkinsfile 文件
+
+   ```groovy
+   pipeline {
+       agent any
+   
+       stages {
+           stage('pull code') {
+               steps {
+                   checkout([$class: 'GitSCM', branches: [[name: '*/${branch}']], extensions: [], userRemoteConfigs: [[credentialsId: 'd2344a4e-e819-41d4-bda4-1f8bffdd0ef9', url: 'http://192.168.137.80:88/root/web-demo.git']]])
+               }
+           }
+           stage('maven build') {
+               steps {
+                   sh 'mvn clean package'
+               }
+           }
+           stage('project deploy') {
+               steps {
+                   deploy adapters: [tomcat8(credentialsId: 'a7922d1b-95a7-4f5f-a8e5-d05368679ff5', path: '', url: 'http://192.168.137.82:8080/')], contextPath: null, war: 'target/*.war'
+               }
+           }
+       }
+       // 在构建完成后进行相关操作
+       post {
+           // 无论是否构建成功都进行相关操作
+           always {
+               emailext(
+                   subject: '构建通知：${PROJECT_NAME} - Build # ${BUILD_NUMBER} - ${BUILD_STATUS}!',
+                   body: '${FILE,path="email.html"}',
+                   to: '2391105059@qq.com'
+               )
+           }
+       }
+   }
+   ```
+
+   tips: 关于声明式脚本的代码结构可以在下图中的位置配置
+
+   ![image-20220414144037337](README.assets/image-20220414144037337.png)
+
+   ![image-20220414144103099](README.assets/image-20220414144103099.png)
+
+6. 将代码 push gitlab 后在 Jenkins 进行构建部署查看邮件
+
+   ![image-20220414144948409](README.assets/image-20220414144948409.png) 
+
+   
+
 ## Jenkins + Docker + SpringCloud 微服务持续集成
 
 
