@@ -4,12 +4,25 @@ pipeline {
     stages {
         stage('pull code') {
             steps {
-                checkout([$class: 'GitSCM', branches: [[name: '*/${branch}']], extensions: [], userRemoteConfigs: [[credentialsId: 'd2344a4e-e819-41d4-bda4-1f8bffdd0ef9', url: 'http://192.168.137.80:88/root/web-demo.git']]])
+                checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'd2344a4e-e819-41d4-bda4-1f8bffdd0ef9', url: 'http://192.168.137.80:88/root/web-demo.git']]])
             }
         }
         stage('maven build') {
             steps {
                 sh 'mvn clean package'
+            }
+        }
+        // 构建后进行代码检查
+        stage('sonar code check') {
+            steps {
+                script {
+                    // 引入 Sonar scanner 工具
+                    scannerHome = tool 'sonar-scanner.4.3'
+                }
+                // 引入 Sonar Server
+                withSonarQubeEnv('sonar-server-7.4') {
+                    sh "${scannerHome}/bin/sonar-scanner"
+                }
             }
         }
         stage('project deploy') {

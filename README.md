@@ -1085,7 +1085,7 @@ Jenkins 内置的4中构建步骤：
    </html>
    ```
 
-   PS：邮件相关全局参数参考列表:系统设置->Extended E-mail Notification->Content Token Reference，点击旁边的?号
+   PS：邮件相关全局参数参考列表: 系统设置->Extended E-mail Notification->Content Token Reference，点击旁边的?号
 
    ![image-20220414145639984](README.assets/image-20220414145639984.png)
 
@@ -1136,7 +1136,208 @@ Jenkins 内置的4中构建步骤：
 
    ![image-20220414144948409](README.assets/image-20220414144948409.png) 
 
-   
+### SonarQube 代码审查
+
+#### 简介
+
+SonarQube 是一个用于管理代码质量的开发平台，可以快速的定为代码中的潜在/明显的错误。目前支持 java/C#/C++/Python/JS 等二十多种编程语言的代码质量管理与检测
+
+官网：https://www.sonarqube.org/
+
+> 环境要求
+
+| 软件      | 版本  |
+| --------- | ----- |
+| JDK       | 1.8   |
+| MySQL     | 5.7   |
+| SonarQube | 6.7.4 |
+
+#### 安装
+
+1. 安装 Postgresql -> https://www.modb.pro/db/247813
+
+2. 在 Postgresql 中创建 `sonar` 数据库(名字固定)
+
+   ```sql
+   CREATE DATABASE sonar TEMPLATE template0 ENCODING 'utf8' ;
+   create user sonar;
+   alter user sonar with password 'sonar';
+   alter role sonar createdb;
+   alter role sonar superuser;
+   alter role sonar createrole;
+   alter database sonar owner to sonar;
+   ```
+
+3. 下载 sonar 压缩包(注意哟，7.4 版本以上的不支持 JDK8 了哟)并上传到服务器
+
+   ```bash
+   yum install unzip
+   unzip sonarqube-6.7.4.zip 			#解压
+   mkdir /opt/sonar 					#创建目录
+   mv sonarqube-6.7.4/* /opt/sonar 	#移动文件
+   useradd sonar 						#创建sonar用户，必须sonar用于启动，否则报错
+   chown -R sonar. /opt/sonar 			#更改sonar目录及文件权限
+   ```
+
+4. 修改 sonar 配置文件
+
+   ```bash
+   vi /opt/sonar/conf/sonar.properties
+   ```
+
+   > 内容如下------
+   >
+   > sonar.jdbc.username=sonar
+   > sonar.jdbc.password=sonar
+   > sonar.jdbc.url=jdbc:postgresql://localhost/sonar
+
+5. 中文插件 -> https://blog.csdn.net/vistaed/article/details/114000259
+
+6. 启动 sonar
+
+   ```bash
+   cd /opt/sonar
+   su sonar ./bin/linux-x86-64/sonar.sh start 启动
+   su sonar ./bin/linux-x86-64/sonar.sh status 查看状态
+   su sonar ./bin/linux-x86-64/sonar.sh stop 停止
+   tail -f logs/sonar.logs 查看日志
+   ```
+
+7. 访问服务器的 9000 端口，默认账户 `admin`/`admin`
+
+   ![image-20220416102408299](README.assets/image-20220416102408299.png)
+
+8. 记得保存对应的 token，后面需要使用
+
+   > **330803231e55ff38216ee280afc74c5f4f5e3279**
+
+9. 关闭 SonarQube 中将审查结果上传到 SCM 功能
+
+   ![image-20220416110450887](README.assets/image-20220416110450887.png)
+
+#### Jenkins 环境整合配置
+
+![image-20220416102610282](README.assets/image-20220416102610282.png)
+
+1. Jenkins 安装 SonarQube Scanner 插件
+
+   ![image-20220416102538426](README.assets/image-20220416102538426.png)
+
+2. [全局工具配置] 通过 Jenkins 安装 SonarQube Scanner 工具(类似于 SonarQube 提供的客户端工具)
+
+   ![image-20220416103529044](README.assets/image-20220416103529044.png)
+
+3. 添加 SonarQube 凭证
+
+   ![image-20220416102750912](README.assets/image-20220416102750912.png)
+
+4. 在 Jenkins 进行 SonarQube 配置
+
+   ![image-20220416103828653](README.assets/image-20220416103828653.png)
+
+#### SonarQube 代码审查(非流水线项目)
+
+在任务中[增加构建步骤]
+
+![image-20220416111048227](README.assets/image-20220416111048227.png)
+
+```properties
+# 在 SonarQube 中的标识
+sonar.projectKey=web_demo_freestyle
+# 项目名
+sonar.projectName=web_demo_freestyle
+sonar.projectVersion=1.0
+# 需要扫描的目录
+sonar.sources=.
+# 不需要扫描的目录
+sonar.exclusions=**/test/**,**/target/**
+# 使用的 JDK 版本
+sonar.java.source=1.8
+sonar.java.target=1.8
+# 文件编码
+sonar.sourceEncoding=UTF-8
+```
+
+立即构建 √(tips: 如果是第一次可能会有点慢，好像要下载 sonar scanner)，构建成功后可以到 SonarQube 界面中看到
+
+![image-20220416112331714](README.assets/image-20220416112331714.png)
+
+> 这中文汉化麻了，'异味'可还行，指的是一些不影响运行但影响性能的代码
+
+#### SonarQube 代码审查(流水线项目)
+
+在项目的根目录下创建一个 `sonar-project.properties`(名字固定)
+
+```properties
+# 在 SonarQube 中的标识
+sonar.projectKey=web_demo_pipeline
+# 项目名
+sonar.projectName=web_demo_pipeline
+sonar.projectVersion=1.0
+# 需要扫描的目录
+sonar.sources=.
+# 不需要扫描的目录
+sonar.exclusions=**/test/**,**/target/**
+# 使用的 JDK 版本
+sonar.java.source=1.8
+sonar.java.target=1.8
+# 文件编码
+sonar.sourceEncoding=UTF-8
+```
+
+修改 Jenkinsfile
+
+```javascript
+pipeline {
+    agent any
+
+    stages {
+        stage('pull code') {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'd2344a4e-e819-41d4-bda4-1f8bffdd0ef9', url: 'http://192.168.137.80:88/root/web-demo.git']]])
+            }
+        }
+        stage('maven build') {
+            steps {
+                sh 'mvn clean package'
+            }
+        }
+        // 构建后进行代码检查
+        stage('sonar code check') {
+            steps {
+                script {
+                    // 引入 Sonar scanner 工具
+                    scannerHome = tool 'sonar-scanner.4.3'
+                }
+                // 引入 Sonar Server
+                withSonarQubeEnv('sonar-server-7.4') {
+                    sh "${scannerHome}/bin/sonar-scanner"
+                }
+            }
+        }
+        stage('project deploy') {
+            steps {
+                deploy adapters: [tomcat8(credentialsId: 'a7922d1b-95a7-4f5f-a8e5-d05368679ff5', path: '', url: 'http://192.168.137.82:8080/')], contextPath: null, war: 'target/*.war'
+            }
+        }
+    }
+    // 在构建完成后进行相关操作
+    post {
+        // 无论是否构建成功都进行相关操作
+        always {
+            emailext(
+                subject: '构建通知：${PROJECT_NAME} - Build # ${BUILD_NUMBER} - ${BUILD_STATUS}!',
+                body: '${FILE,path="email.html"}',
+                to: '2391105059@qq.com'
+            )
+        }
+    }
+}
+```
+
+上传提交即可
+
+![image-20220416113512211](README.assets/image-20220416113512211.png)
 
 ## Jenkins + Docker + SpringCloud 微服务持续集成
 
