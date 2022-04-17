@@ -1339,15 +1339,83 @@ pipeline {
 
 ![image-20220416113512211](README.assets/image-20220416113512211.png)
 
-## Jenkins + Docker + SpringCloud 微服务持续集成
+## 微服务持续集成
+
+> SpringCloud + Gitlab + Jenkins + Pipeline + Docker + Nginx + 钉钉通知
+
+### 微服务持续集成流程说明
+
+![image-20220416114117232](README.assets/image-20220416114117232.png)
+
+**后端构建**
+
+1. 在微服务项目中创建 `Jenkinsfile` 文件
+
+2. 在 Jenkins 上创建流水线任务，并指定 Pipeline 脚本的位置(在Git上的位置)
+
+3. 从 Gitlab 上拉取代码
+
+   1. 修改流水线任务，添加参数化构建(**branch**:支持拉取指定分支，默认值为 `master`)
+   2. 修改 `Jenkinsfile` 添加拉取代码的脚本，并使用流水线参数 **branch**
+
+4. SonarQube 代码审查
+
+   1. Jenkins 安装 `Extended Choice Parameter plugin` 插件
+   2. 修改流水线任务，添加参数化构建(**project_name**: 支持拉取构建指定微服务模块)
+   3. 为每个微服务模块添加 `sonar-project.properties` 配置文件并配置相关参数
+   4. 修改 `Jenkinsfile` 添加调用 **sonar-scanner** 的脚本，并使用流水线参数 **project_name**，为每个微服务模块进行代码审查
+
+5. Maven + Docker 代码编译，构建镜像
+
+   1. 为每个微服务模块在 `pom.xml` 中加入 **dockerfile-maven-plugin** 插件
+   2. 为每个微服务模块添加 `Dockerfile` 文件
+   3. 修改 `Jenkinsfile` 使用 **sh** 命令执行对应的 Maven 编译和 Docker 构建即可
+
+6. 将镜像上传到私有仓库(Harbor/阿里云等)
+
+   1. Jenkins 添加私有仓库的凭据
+   2. 修改 `Jenkinsfile` 通过 **docker tag** 命令为镜像打上标签，使用流水线参数 **project_name** 并通过**引入私有仓库的凭据登录**到私有仓库，完成指定微服务模块的 **push**
+
+7. 拉取镜像和发布应用
+
+   1. Jenkins 安装 **Publish Over SSH** 插件
+
+   2. 为 Jenkins 主机生成一个密钥对，然后通过命令行将公钥 copy 给要部署服务器
+
+   3. 在 Jenkins 系统配置中添加远程服务器
+
+   4. 修改流水线任务，添加参数化构建(**port**: 指定微服务的运行端口，**publish_server**: 指定要部署的服务器)
+
+   5. 在部署服务器上编写 **Docker部署脚本.sh**(其中包括，是否需要 暂停并删除容器, 删除镜像, 登录私有仓库，拉取镜像，启动容器)
+
+   6. 修改 `Jenkinsfile` 添加调用 **sshPublisher** 的脚本，使用流水线参数 **puhlish_server** 调用在指定部署服务器上已经写好的 **Docker部署脚本.sh** ，并提供相关参数(例如 **port** & **project_name** 等)
+
+      > project_name: 告诉 Docker 要重启启动的微服务有哪些
+
+8. 在最后配置钉钉通知
+
+**前端构建**
+
+1. 安装 **Nginx**
+2. 关闭 **selinux**
+3. 启动 **Nginx**
+4. Jenkins 安装 **NodeJS** 插件并配置 **NodeJS**
+5. 在 Jenkins 上创建流水线项目，并配置参数化构建(**branch**: 要拉取的分支，**publish_server**: 指定要部署的服务器)
+6. 在项目中创建 `Jenkinsfile` 文件，并使用流水线参数，支持拉取指定分支代码 & 通过 **sshPublisher** 部署到对应的服务器上
+
+> 其中 [Jenkins服务器 & Docker仓库服务器(可以用阿里云的镜像仓库) & 生产部署服务器] 都要安装 **Docker**
+
+### Docker 的使用
+
+> TODO：Docker学习
+
+### 镜像仓库 Harbor
+
+> **!!!!!! 有兴趣的自己查吧，我搞这个搞不定，摆烂了**（最后用的阿里云镜像仓库,可以参考:TODO）
 
 
 
 
-
-
-
-## 基于 Kubernetes/K8S 构建 Jenkins 持续集成平台 
 
 
 
