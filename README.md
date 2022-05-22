@@ -1006,8 +1006,6 @@ Jenkins 内置的4中构建步骤：
 
 ### 配置邮件服务器发送构建结果
 
-**lepu****nxhu****taaw****ebje**
-
 1. 安装 Email Extension Template 插件
 
    ![image-20220414141659517](README.assets/image-20220414141659517.png)
@@ -1200,7 +1198,7 @@ SonarQube 是一个用于管理代码质量的开发平台，可以快速的定�
    su sonar ./bin/linux-x86-64/sonar.sh start 启动
    su sonar ./bin/linux-x86-64/sonar.sh status 查看状态
    su sonar ./bin/linux-x86-64/sonar.sh stop 停止
-   tail -f logs/sonar.logs 查看日志
+   tail -f logs/sonar.log 查看日志
    ```
 
 7. 访问服务器的 9000 端口，默认账户 `admin`/`admin`
@@ -1262,7 +1260,7 @@ sonar.sourceEncoding=UTF-8
 
 ![image-20220416112331714](README.assets/image-20220416112331714.png)
 
-> 这中文汉化麻了，'异味'可还行，指的是一些不影响运行但影响性能的代码
+> 这中文汉化我人麻了，'异味'可还行，指的是一些不影响运行但影响性能的代码
 
 #### SonarQube 代码审查(流水线项目)
 
@@ -1386,7 +1384,7 @@ pipeline {
 
    4. 修改流水线任务，添加参数化构建(**port**: 指定微服务的运行端口，**publish_server**: 指定要部署的服务器)
 
-   5. 在部署服务器上编写 **Docker部署脚本.sh**(其中包括，是否需要 暂停并删除容器, 删除镜像, 登录私有仓库，拉取镜像，启动容器)
+   5. 在部署服务器上编写 **Docker部署脚本.sh**(其中包括，是否需要暂停并删除容器, 删除镜像, 登录私有仓库，拉取镜像，启动容器)
 
    6. 修改 `Jenkinsfile` 添加调用 **sshPublisher** 的脚本，使用流水线参数 **puhlish_server** 调用在指定部署服务器上已经写好的 **Docker部署脚本.sh** ，并提供相关参数(例如 **port** & **project_name** 等)
 
@@ -1405,13 +1403,698 @@ pipeline {
 
 > 其中 [Jenkins服务器 & Docker仓库服务器(可以用阿里云的镜像仓库) & 生产部署服务器] 都要安装 **Docker**
 
-### Docker 的使用
+1. 配置 Gitlab - 服务器(1核2G)
+2. 配置 Maven Nexus 私服 - 服务器(1核2G)
+3. 配置 Docker Harbar 仓库 - 服务器(2核4G)
+4. 配置生产服务器的环境：Docker/Nacos/Mysql/Redis/Nginx/域名 - 1台服务器(2核4G)
+5. 配置 Jenkins 服务器环境：Node/JDK/Maven/Docker/Jenkins/SonarQube/Git - 服务器(2核4G)
 
-> TODO：Docker学习
+### Github SSH Key
 
-### 镜像仓库 Harbor
+> linux 生成 SSH Key: https://blog.csdn.net/sanbingyutuoniao123/article/details/52205494
 
-> **!!!!!! 有兴趣的自己查吧，我搞这个搞不定，摆烂了**（最后用的阿里云镜像仓库,可以参考:TODO）
+1. 将公钥复制到 github 上
+
+   ![image-20220519145422814](README.assets/image-20220519145422814.png)
+
+   ![image-20220519145625527](README.assets/image-20220519145625527.png)
+
+2. 将密钥保存到 Jenkins 服务器
+
+   1. Jenkins 安装 [Credentials Binding] 插件
+
+   2. 复制密钥
+
+      ![image-20220519150115917](README.assets/image-20220519150115917.png)
+
+   3. 添加全局凭据
+
+      ![image-20220519145751082](README.assets/image-20220519145751082.png)
+
+      ![image-20220519150048528](README.assets/image-20220519150048528.png)
+
+3. Jenkins 上[安装 Git 插件和 Git 工具](#安装 git 插件 & git 工具)
+
+4. Jenkins 上[配置Maven环境](#Maven 安装和配置)
+
+- [可选]如果搭配了 **Nexus** 私服 Maven 仓库就需要修改 `setting.xml` 中 `<mirror>` 的配置为私人仓库并修改 `<server>`
+
+  [通过 Nexus 下载 jar 包](#通过 Nexus 下载 jar 包)
+
+### Jenkins Pipeline
+
+> 了解 [Pipeline 流水线项目构建](#Pipeline 流水线项目构建)
+
+1. 创建 Pipeline 流水线项目
+
+   ![image-20220519151432516](README.assets/image-20220519151432516.png)
+
+2. 配置参数化构建([参数化构建插件](https://jingyan.baidu.com/article/7e440953f3fa4d6ec1e2ef2c.html))
+
+   ![image-20220520104442530](README.assets/image-20220520104442530.png)
+
+3. 点击流水线语法生成 Pipeline 代码
+
+   ![image-20220519151651696](README.assets/image-20220519151651696.png)
+
+4. 生成[拉取 github 代码]片段
+
+   ![image-20220519152758048](README.assets/image-20220519152758048.png)
+
+   点击生成即可得到
+
+   ```Jenkinsfile
+   checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'a7cb7f55-c962-427f-a040-4c8c92219abc', url: 'git@github.com:Dreamer-07/guli_parent.git']]])
+   ```
+
+5. 在微服务项目根目录下创建 `Jenkinsfile` 文件
+
+   ```groovy
+   node {
+   	def selectedProjects = "${project_name}".split(',')
+   	
+       // 拉取代码
+       stage('pull code') {
+           checkout([$class: 'GitSCM', branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[credentialsId: 'a7cb7f55-c962-427f-a040-4c8c92219abc', url: 'git@github.com:Dreamer-07/guli_parent.git']]])
+       }
+       // 构建项目并上传的服务器上
+       stage('project build') {
+           // (无 nexus) 安装公共依赖
+           // sh 'mvn -f guli-common clean install'
+           // (有 nexus) 安装公共依赖
+           sh 'mvn -f guli-common clean deploy'
+           for(int i=0;i<selectedProjects.size();i++){
+               def currentProject = selectedProjects[i]
+               // (无 nexus) 项目打包
+               // sh 'mvn -f ${currentProject} clean install'
+               // (有 nexus) 项目打包
+               sh "mvn -f ${currentProject} clean deploy"
+           }
+       }
+   }
+   ```
+
+6. [可选]如果配置了 maven nexus 私服需要在项目的 `pom.xml` 中加一段
+
+   ```xml
+   <!-- 会根据 <version> 标签中中是否含有 SNAPSHOT 决定要上传的版本 -->
+   <distributionManagement>
+       <!-- 含有 SNAPSHOT 使用这个 -->
+       <snapshotRepository>
+           <id>nexus-mine</id>
+           <name>Nexus Snapshot</name>
+           <url>http://192.168.102.130:8081/repository/maven-snapshots/</url>
+       </snapshotRepository>
+       <!-- 不含有 SNAPSHOT 使用这个 - release -->
+       <repository>
+           <id>nexus-mine</id>
+           <name>Nexus Snapshot</name>
+           <!-- 快照版本就保存到快照仓库，release版本就保存到 release 仓库 -->
+           <url>http://192.168.102.130:8081/repository/maven-releases/</url>
+       </repository>
+   </distributionManagement>
+   ```
+
+7. 设置 Jenkins 从 Github 上读取 `Jenkinsfile`
+
+   ![image-20220519154121715](README.assets/image-20220519154121715.png)
+
+8. 将更新后的项目推送到 Github 上并在 Jenkins 上点击 **Build Now**
+
+- 如果出现 UnresolvableModelException/ProjectBuildingException 错误，代表没有权限，来到 Jenkins 服务器上
+
+  ```bash
+  chmod -R o+r+w maven仓库
+  chmod o+x+w maven仓库
+  ```
+
+- [特殊]如果搭建了 Maven Nexus，且有个 jar 包不存在于中央仓库则需要自己上传 -> [Nexus 上传第三方 jar 包](#Nexus 上传第三方 jar 包)
+
+  上传后如果还是相关问题，可以尝试删除本地仓库中对应下载的依赖然后再重新 **Build Now**
+
+### SonarQube 代码审查
+
+1. 在服务器上安装 [SonarQube](#SonarQube 代码审查)
+
+3. 在项目根目录下创建 `soanr-project.properties`
+
+   ```properties
+   # 在 SonarQube 中的标识
+   sonar.projectKey=guli-parent
+   # 项目名
+   sonar.projectName=guli-parent
+   sonar.projectVersion=1.0
+   # 需要扫描的目录
+   sonar.sources=.
+   # 不需要扫描的目录
+   sonar.exclusions=**/test/**,**/target/**
+   # 使用的 JDK 版本
+   sonar.java.source=1.8
+   sonar.java.target=1.8
+   # 文件编码
+   sonar.sourceEncoding=UTF-8
+   sonar.java.binaries=**/target/classes
+   ```
+
+4. 修改 `Jenkinsfile`
+
+   ```groovy
+   node {
+       ...
+       // 构建后进行代码检查
+       stage('code check') {
+           def scannerHome = tool 'sonar-scanner-4.2'
+           withSonarQubeEnv('sonar-server-7.7') {
+               sh """
+                   ${scannerHome}/bin/sonar-scanner
+               """
+           }
+       }
+   }
+   ```
+
+### Docker Horbar
+
+#### 安装 Docker
+
+> 参考：TODO
+
+#### 安装 Harbor
+
+1. 安装 Docker Compose: TODO
+
+2. 下载离线安装包(offline-install)：https://github.com/goharbor/harbor/releases
+
+3. 上传到服务器，解压
+
+   ```bash
+   tar -zxvf tar -zxvf harbor-offline-installer-v2.3.2.tgz
+   cd harbor
+   ```
+
+4. 编写配置文件
+
+   ```bash
+   cp harbor.yml.tmpl harbor.yml
+   vi harbor.yml
+   ```
+
+   ![image-20220519104845802](README.assets/image-20220519104845802.png)
+
+5. 安装
+
+   ```bash
+   ./prepare
+   ./install.sh
+   ```
+
+6. 启动
+
+   ```bash
+   docker-compose up -d
+   docker-compose start
+   ```
+
+#### 将镜像发布到 Harbor 中
+
+1. 修改本机的 `/etc/docker/daemon.json` 添加对应的 docker 仓库服务器地址
+
+   ![image-20220519131221293](README.assets/image-20220519131221293.png)
+
+2. 重启 docker
+
+   ```bash
+   systemctl daemon-reload
+   systemctl restart docker
+   ```
+
+3. 登录到 docker 仓库服务器
+
+   ```bash
+   docker login 192.168.102.132
+   ```
+
+   ![image-20220519131415926](README.assets/image-20220519131415926.png)
+
+4. 在 harbor 上获取相关命令
+
+   ![image-20220519131537917](README.assets/image-20220519131537917.png)
+
+5. 在服务器上进行上传
+
+   ![image-20220519131935761](README.assets/image-20220519131935761.png)
+
+6. 到 harbor 上查看
+
+   ![image-20220519131955956](README.assets/image-20220519131955956.png)
+
+   
+
+#### 从 Harbor 中拉取镜像运行
+
+### Docker 构建发布镜像
+
+1. 在微服务项目最外层的 `pom.xml` 中添加以下配置
+
+   ```xml
+   <build>
+       <plugins>
+           <!-- docker 构建插件 -->
+           <plugin>
+               <groupId>com.spotify</groupId>
+               <artifactId>dockerfile-maven-plugin</artifactId>
+               <version>1.3.6</version>
+               <configuration>
+                   <repository>${project.artifactId}</repository>
+                   <buildArgs>
+                       <JAR_FILE>target/${project.build.finalName}.jar</JAR_FILE>
+                   </buildArgs>
+               </configuration>
+           </plugin>
+           <!-- Spring 应用打包插件 -->
+           <plugin>
+               <groupId>org.springframework.boot</groupId>
+               <artifactId>spring-boot-maven-plugin</artifactId>
+               <executions>
+                   <execution>
+                       <goals>
+                           <goal>repackage</goal><!--可以把依赖的包都打包到生成的Jar包中 -->
+                       </goals>
+                   </execution>
+               </executions>
+           </plugin>
+       </plugins>
+   </build>
+   ```
+
+   对于一些 `common` 模块(没有 Spring 启动程序)的子模块，需要排除相关依赖
+
+   ```xml
+   <build>
+       <plugins>
+           <plugin>
+               <groupId>org.springframework.boot</groupId>
+               <artifactId>spring-boot-maven-plugin</artifactId>
+               <!-- 构建时跳过该插件 -->
+               <configuration>
+                   <skip>true</skip>
+               </configuration>
+           </plugin>
+       </plugins>
+   </build>
+   ```
+
+2. 为每个需要构建镜像的微服务模块添加一个 `Dockerfile`
+
+   ```dockerfile
+   #FROM java:8
+   FROM openjdk:8-jdk-alpine
+   ARG JAR_FILE
+   COPY ${JAR_FILE} app.jar
+   EXPOSE 微服务项目端口号
+   ENTRYPOINT ["java","-jar","/app.jar"]
+   ```
+
+3. 在 Jenkins 上添加 Harbor 服务器的凭据(账号密码)
+
+4. 生成代码
+
+   ![image-20220520161333562](README.assets/image-20220520161333562.png)
+
+5. 修改 `Jenkinsfile`
+
+   ```groovy
+   // 生成镜像
+   stage('generate image') {
+       for(int i=0;i<selectedProjects.size();i++){
+           def currentProject = selectedProjects[i]
+           // 使用 maven 构建本地镜像
+           sh "mvn -f ${currentProject} dockerfile:build"
+           // 因为 currentProject 可能为 yyy/xxxx，而构建镜像出来的镜像名为 xxxx 所以要做一下处理
+           if (currentProject.contains('/')) {
+               currentProject = currentProject.split('/')[1]
+           }
+           // 给 maven 打标签
+           sh "docker tag ${currentProject}:latest ${harborUrl}/${harborProjectName}/${currentProject}:latest"
+           // 上传到 docker harbor
+           withCredentials([usernamePassword(credentialsId: '25e54fc4-3711-41e6-b85c-14317c9dc2fc', passwordVariable: 'password', usernameVariable: 'username')]) {
+               // 登录
+               sh "docker login -u ${username} -p ${password} ${harborUrl}"
+               // 上传镜像
+               sh "docker push ${harborUrl}/${harborProjectName}/${currentProject}:latest"
+           }
+           // 删除本地镜像
+           sh "docker rmi -f ${currentProject}"
+           sh "docker rmi -f ${harborUrl}/${harborProjectName}/${currentProject}:latest"
+       }
+   }
+   ```
+
+### 部署服务器环境
+
+#### Nacos
+
+> 安装
+
+```bash
+docker run -d  --name nacos -p 8848:8848 --env MODE=standalone --env NACOS_SERVER_IP=192.168.56.102 nacos/nacos-server
+```
+
+> 配置管理：
+
+#### Mysql
+
+```bash
+docker run -p 3306:3306 --name mysql \
+-v /usr/local/docker/mysql/conf:/etc/mysql \
+-v /usr/local/docker/mysql/logs:/var/log/mysql \
+-v /usr/local/docker/mysql/data:/var/lib/mysql \
+-e MYSQL_ROOT_PASSWORD=123456 \
+-d mysql:5.7
+```
+
+#### Redis
+
+https://cloud.tencent.com/developer/article/1670205
+
+#### Nginx
+
+https://juejin.cn/post/6844904016086827016#heading-3
+
+#### 使用 Nacos 作为项目配置中心
+
+- Nacos NameSpace 使用：https://www.larscheng.com/nacos-namespace/
+
+- 引入依赖：
+
+  ```xml
+  <!-- 配置中心 -->
+  <dependency>
+      <groupId>org.springframework.cloud</groupId>
+      <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+  </dependency>
+  ```
+
+- 为每个微服务模块添加 `bootstrap-prod.yml` 文件, 配置**其在生产环境**下需要使用的配置
+
+  ```yaml
+  # Nacos 注册中心
+  spring.cloud.nacos.discovery.server-addr=192.168.102.133:8848
+  # Nacos 配置中心
+  spring.cloud.nacos.config.server-addr=192.168.102.133:8848
+  # Nacos 配置文件命名空间
+  spring.cloud.nacos.config.namespace=91e4415b-491f-4bf4-b921-4c676da40c6f
+  
+  # 加载多配置集
+  spring.cloud.nacos.config.ext-config[0].data-id=common-redis-prod.properties
+  spring.cloud.nacos.config.ext-config[0].group=guli-parent
+  spring.cloud.nacos.config.ext-config[0].refresh=true
+  spring.cloud.nacos.config.ext-config[1].data-id=common-db-prod.properties
+  spring.cloud.nacos.config.ext-config[1].group=guli-parent
+  spring.cloud.nacos.config.ext-config[1].refresh=true
+  ```
+
+### 通知服务器拉取镜像
+
+1. 在 Jenkins 服务器上生成 SSH Key 然后 copy 到生产服务器
+
+   ```bash
+   ssh-copy-id 生产服务器地址
+   ```
+
+2. 在 Jenkins 中添加远程服务器
+
+   ![image-20220521100543018](README.assets/image-20220521100543018.png)
+
+3. 生成 Jenkinsfile 模板代码
+
+   ![image-20220521101324065](README.assets/image-20220521101324065.png)
+
+4. 更新 Jenkinsfile
+
+   ```groovy
+   node {
+       def selectedProjects = "${project_name}".split(',')
+       // docker harbor 仓库地址
+       def harborUrl = "192.168.102.132"
+       // docker harbor project
+       def harborProjectName = "guli"
+   
+   
+       ...
+       // 生成镜像
+       stage('docker project deploy') {
+           for (int i = 0; i < selectedProjects.size(); i++) {
+               ...
+                   
+               // 发布命令到远程服务器
+               sshPublisher(publishers: [sshPublisherDesc(configName: 'jenkins-prod-1', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: "/opt/jenkins_shell/deploy.sh $harborUrl $harborProjectName $currentProject", execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '', remoteDirectorySDF: false, removePrefix: '', sourceFiles: '')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+           }
+       }
+   }
+   ```
+
+   记得修改相关变量名
+
+5. 为远程服务器添加对应的脚本 `/opt/jenkins_shell/delpoy.sh`
+
+   ```sh
+   harbor_url=$1
+   harbor_project_name=$2
+   project_name=$3
+   
+   imageName=$harbor_url/$harbor_project_name/$project_name:latest
+   echo "$imageName"
+   #查询容器是否存在，存在则删除
+   containerId=`docker ps -a | grep -w ${project_name} | awk '{print $1}'`
+   if [ "$containerId" != "" ] ; then
+           #停掉容器
+           docker stop $containerId
+           #删除容器
+           docker rm $containerId
+           echo "成功删除容器"
+   fi
+   #查询镜像是否存在，存在则删除
+   imageId=`docker images | grep -w $project_name | awk '{print $3}'`
+   if [ "$imageId" != "" ] ; then
+           #删除镜像
+           docker rmi -f $imageId
+           echo "成功删除镜像"
+   fi
+   # 登录Harbor私服
+   docker login -u admin -p 123456 $harbor_url
+   # 下载镜像
+   docker pull $imageName
+   # 启动容器需要判断，如果为 网关服务(gateway) 就需要固定使用通过 9001 端口(方便后端找)
+   # 如果不是网关服务器，随机映射端口即可(通过 nacos 调用)
+   isGateway=$(echo $imageName | grep "gateway")
+   # 网关固定端口
+   port=9001
+   if [[ "$isGateway" != "" ]]
+   then
+       docker run -di -p $port:$port $imageName --spring.profiles.active=prod
+   else
+       # 只会映射 EXPORE(暴露) 的端口
+       docker run -di -P $imageName --spring.profiles.active=prod
+   fi
+   echo "容器启动成功"
+   ```
+
+   
+
+### Maven Nexus
+
+#### 服务器安装 Nexus
+
+1. 安装 JDK 环境
+
+   ```bash
+   yum install java-1.8.0-openjdk* -y
+   ```
+
+2. 下载 Nexus -> https://help.sonatype.com/repomanager3/product-information/download
+
+3. 解压文件
+
+   ```java
+   tar -zxvf nexus-3.38.1-01-unix.tar.gz
+   ```
+
+4. 启动 nexus
+
+   ```bash
+   cd nexus-3.38.1-01/bin/ # 进入到对应的目录下
+   ./nexus start			# 启动 nexus
+   ./nexus status			# 查看 nexus 状态，可能需要等一段时间才能显示running
+   ```
+
+5. 关闭防火墙 / 开放 8081 端口
+
+6. 访问对应的 8081 端口
+
+   ![image-20220518132949491](README.assets/image-20220518132949491.png)
+
+7. 登录并更改密码
+
+   1. 右上角有一个[Sign in] - 初始密码需要去 `/root/sonatype-work/nexus3/admin.password` 下查看
+
+      ```bash
+      cat /root/sonatype-work/nexus3/admin.password1
+      ```
+
+   2. 默认用户名是 `admin`，登录后需要重新设置密码
+
+       ![image-20220518133226007](README.assets/image-20220518133226007.png)
+
+      
+
+#### 通过 Nexus 下载 jar 包
+
+1. 了解 Nexus 上的各种仓库 [Browse]
+
+   ![image-20220518144239378](README.assets/image-20220518144239378.png)
+
+   | 仓库类型 | 说明                                           |
+   | -------- | ---------------------------------------------- |
+   | proxy    | 某个远程仓库的代理                             |
+   | group    | 存放：通过 Nexus 获取的第三方 jar 包           |
+   | hosted   | 存放：本团队其他开发人员部署到 Nexus 的 jar 包 |
+
+   | 仓库名称        | 说明                                                         |
+   | --------------- | ------------------------------------------------------------ |
+   | maven-central   | Nexus 对中央仓库的代理                                       |
+   | maven-public    | Nexus 默认创建，供开放人员下载使用的组仓库，仓库分组，把其他三个仓库组合在一起对外提供服务，在本地 **maven** 基础配置 **settings.xml** 或项目 **pom.xml** 中使用 |
+   | maven-release   | Nexus 默认创建，供开发人员部署自己 jar 包的宿主仓库，要求 release 版本 |
+   | maven-snapshots | Nexus 默认创建，供开发人员部署自己 jar 包的宿主仓库，要求 snapshots 版本 |
+
+2. 修改服务器 Maven 的 `setting.xml` 配置
+
+   修改 `mirror` 配置
+
+   ```xml
+   <mirror>
+       <id>nexus-mine</id>
+       <mirrorOf>*</mirrorOf>
+       <name>Nexus mine</name>
+       <!-- nexus 服务器地址 -->
+       <url>http://192.168.102.130:8081/repository/maven-public/</url>
+   </mirror>
+   ```
+
+   [未开启匿名访问]修改 `server` 配置
+
+   ```xml
+   <server>
+       <id>nexus-mine</id>
+       <username>admin</username>
+       <password>12345678</password>
+   </server>
+   ```
+
+3. 找到一个 maven 工程
+
+   ```bash
+   mvn clean complie
+   ```
+
+   ![image-20220518145119747](README.assets/image-20220518145119747.png)
+
+4. 在 Nexus 上可以看到依赖的 jar 包
+
+    ![image-20220518145150428](README.assets/image-20220518145150428.png)
+
+#### 修改 Nexus 仓库代理
+
+> `maven-central` 默认是对 Maven 中央仓库进行一个代理，我们可以修改成阿里云的仓库方便下载
+
+![image-20220518152544129](README.assets/image-20220518152544129.png)
+
+#### 将 jar 包部署到 Nexus
+
+1. 修改项目的 `pom.xml`,添加以下配置
+
+   ```xml
+   <!-- 会根据 <version> 标签中中是否含有 SNAPSHOT 决定要上传的版本 -->
+   <distributionManagement>
+       <!-- 含有 SNAPSHOT 使用这个 -->
+       <snapshotRepository>
+           <id>nexus-mine</id>
+           <name>Nexus Snapshot</name>
+           <url>http://192.168.102.130:8081/repository/maven-snapshots/</url>
+       </snapshotRepository>
+       <!-- 不含有 SNAPSHOT 使用这个 - release -->
+       <repository>
+           <id>nexus-mine</id>
+           <name>Nexus Snapshot</name>
+           <!-- 快照版本就保存到快照仓库，release版本就保存到 release 仓库 -->
+           <url>http://192.168.102.130:8081/repository/maven-releases/</url>
+       </repository>
+   </distributionManagement>
+   ```
+   
+   这里 snapshotRepository 的 id 标签也必须和 settings.xml 中指定的 `mirror` 标签的 id 属性一致
+   
+2. 执行部署命令
+
+   ```bash
+   mvn clean deploy
+   ```
+
+3. 在 nexus 上查看 `maven-snapshots` 仓库
+
+   ![image-20220518153528968](README.assets/image-20220518153528968.png)
+
+#### 引用 Nexus 上的 jar 包
+
+> 如果是要用 public/release 中的包可以不加，但如果要使用 snapshots 中的包就需要
+
+1. 在 项目 的 `pom.xml` 添加仓库配置
+
+   ```xml
+   <repositories>
+       <repository>
+           <id>nexus-mine</id>
+           <name>maven-nexus</name>
+           <url>http://192.168.102.130:8081/repository/maven-public/</url>
+           <releases>
+               <enabled>true</enabled>
+           </releases>
+           <snapshots>
+               <enabled>true</enabled>
+           </snapshots>
+       </repository>
+   </repositories>
+   ```
+
+2. 导入仓库中的依赖即可
+
+   ```xml
+   <dependency>
+       <groupId>pers.prover07.guli</groupId>
+       <artifactId>guli-gateway</artifactId>
+       <version>1.0-SNAPSHOT</version>
+   </dependency>
+   ```
+
+#### Nexus 上传第三方 jar 包
+
+![image-20220519160055031](README.assets/image-20220519160055031.png)
+
+### Jenkins 配置
+
+#### 插件列表
+
+- Publish Over SSH: 通过 SSH 发送远程命令
+- Pipeline：构建流水线任务
+- Localization Chinese: Jenkins 中文插件
+- NodeJS：构建 Node 环境
+- SonarQube：代码检查
+- DingTalk：钉钉 Jeknins 插件
+- Extended Choice Parameter：扩展参数化构建
+
+#### 安装 Node JS 环境
+
+https://blog.csdn.net/yexiaomodemo/article/details/114003659
 
 
 
